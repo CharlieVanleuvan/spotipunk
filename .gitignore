@@ -178,3 +178,11 @@ development/
 
 #notes file
 notes.txt
+
+#any credentials files
+src/spotify_creds.py
+src/reddit_creds.py
+src/.spotify_cache
+
+#any .pyc extensions
+*.pyc
