@@ -88,7 +88,18 @@ def current_playlist_songs(playlist_id: str,
     """
     playlist_details = sp.playlist(playlist_id=playlist_id,additional_types=['track'])
     track_ids = [track['track']['id'] for track in playlist_details['tracks']['items']]
-    track_ids = set([track['track']['id'] for track in playlist_details['tracks']['items']])
+    has_next = playlist_details['tracks']['next']
+    if has_next != None:
+        next_page = sp.next(playlist_details['tracks'])
+    
+    while has_next != None:
+        next_track_ids = [track['track']['id'] for track in next_page['items']]
+        track_ids.extend(next_track_ids)
+        has_next = next_page['next']
+        if has_next != None:
+            next_page = sp.next(next_page)
+
+    track_ids = set(track_ids)
     return track_ids
 
 def album_popular_songs(album_id:str,
@@ -136,4 +147,4 @@ if __name__ == "__main__":
     sp = authenticate_spotify(client_id=spotify_client_id,
                           client_secret=spotify_client_secret,
                           redirect_uri=spotify_redirect_uri)
-    remove_old_songs(playlist_id='0bzaTO3nrX2Xidm7CZVtjP', sp=sp)
+    print(current_playlist_songs(playlist_id='51y0f32bYmgiIAE8sR4OUQ', sp=sp))
