@@ -7,7 +7,7 @@ load_dotenv()
 
 class AppConfig:
     # GCP Environment Infrastructure
-    PROJECT_ID = os.getenv("GCP_PROJECT_ID")
+    GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID")
     RAW_VAULT_BUCKET = os.getenv("RAW_VAULT_BUCKET", "spotipunk-raw-vault")
     SUBREDDIT = os.getenv("SUBREDDIT", "poppunkers")
 
