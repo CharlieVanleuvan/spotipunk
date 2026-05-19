@@ -1,150 +1,162 @@
+import re
 import spotipy
-from datetime import datetime, timezone, timedelta
-from spotipy.oauth2 import SpotifyClientCredentials,SpotifyOAuth
-from spotify_creds import spotify_client_id,spotify_client_secret,spotify_redirect_uri
+from spotipy.oauth2 import SpotifyOAuth
+from datetime import datetime, timedelta, timezone
+from src.config import AppConfig
 
-def authenticate_spotify(client_id: str, 
-                         client_secret: str,
-                         redirect_uri: str):
+def get_spotify_client() -> spotipy.Spotify:
     """
-    Authenticate with Spotify
+    Initializes a headless Spotipy client using the refresh token flow.
+    Perfect for running unattended in Cloud Run.
     """
-    scope = 'playlist-modify-public user-library-read'
-    try:
-        sp_oauth = SpotifyOAuth(
-            scope=scope,
-            redirect_uri=spotify_redirect_uri,
-            client_id=spotify_client_id,
-            client_secret=spotify_client_secret,
-            cache_path='.spotify_cache'
-        )
-
-        # Attempt to get a token from cache or prompt for a new one
-        token_info = sp_oauth.get_cached_token()
-
-        if not token_info:
-            print("No cached token found. Initiating new authentication flow...")
-            # This will open a browser window for the user to log in and authorize
-            # It will then redirect to the REDIRECT_URI specified.
-            # Spotipy will automatically capture the authorization code from the URL
-            # and exchange it for an access token.
-            token_info = sp_oauth.get_access_token(code=None) # Passing code=None tells it to use the redirect flow
-
-        if token_info:
-            print("Authentication successful!")
-            return spotipy.Spotify(auth=token_info['access_token'])
-        else:
-            print("Authentication failed: Could not retrieve access token.")
-            return None
-
-    except Exception as e:
-        print(f"An error occurred during authentication: {e}")
-        print("Please ensure your SPOTIPY_CLIENT_ID, SPOTIPY_CLIENT_SECRET, and SPOTIPY_REDIRECT_URI environment variables are set correctly.")
-        print("Also, double-check that your Redirect URI in the Spotify Developer Dashboard matches your code exactly.")
-        return None    
-
-
-def remove_old_songs(playlist_id: str,
-                     sp: object) -> None:
-    """
-    Remove songs from the playlist that were added more than 30 days ago
-    """
-    removed_songs_counter = 0
-    playlist_details = sp.playlist(playlist_id=playlist_id,additional_types=['track'])
-    for track in playlist_details['tracks']['items']:
-        track_timestamp = track['added_at']
-        track_timestamp = datetime.strptime(track_timestamp.replace('Z',''), '%Y-%m-%dT%H:%M:%S').replace(tzinfo=timezone.utc)
-        if track_timestamp < (datetime.now(tz=timezone.utc)-timedelta(days=30)):
-            track_id = track['track']['id']
-            sp.playlist_remove_all_occurrences_of_items(playlist_id=playlist_id,items=[track_id])
-            removed_songs_counter += 1
+    auth_manager = SpotifyOAuth(
+        client_id=AppConfig.SPOTIFY_CLIENT_ID,
+        client_secret=AppConfig.SPOTIFY_CLIENT_SECRET,
+        redirect_uri="http://localhost:8080",  # Placeholder required by Spotipy
+        scope="playlist-modify-public playlist-modify-private",
+        open_browser=False
+    )
     
-    has_next = playlist_details['tracks']['next']
+    # Force injection of our long-lived refresh token
+    auth_manager.cache_handler.save_token_to_cache({
+        "refresh_token": AppConfig.SPOTIFY_REFRESH_TOKEN,
+        "access_token": "",
+        "expires_at": 0
+    })
     
-    if has_next != None:
-        next_page = sp.next(playlist_details['tracks'])
+    return spotipy.Spotify(auth_manager=auth_manager)
+
+
+def get_current_playlist_tracks(sp: spotipy.Spotify, playlist_id: str) -> list[dict]:
+    """
+    Paginates through the entire Spotify playlist to extract all current tracks
+    along with their 'added_at' timestamps.
+    """
+    tracks = []
     
-    while has_next != None:
-        for track in next_page['items']:
-            track_timestamp = track['added_at']
-            track_timestamp = datetime.strptime(track_timestamp.replace('Z',''), '%Y-%m-%dT%H:%M:%S').replace(tzinfo=timezone.utc)
-            if track_timestamp < (datetime.now(tz=timezone.utc)-timedelta(days=30)):
-                track_id = track['track']['id']
-                sp.playlist_remove_all_occurrences_of_items(playlist_id=playlist_id,items=[track_id])
-                removed_songs_counter += 1
+    # Initial page request (caps at 100 items per Spotify API spec)
+    results = sp.playlist_items(playlist_id, fields="items(added_at,track(id)),next")
+    
+    while results:
+        for item in results.get('items', []):
+            if item.get('track'):
+                tracks.append({
+                    "id": item['track']['id'],
+                    "added_at": item['added_at']  # Format: "2026-05-10T14:20:00Z"
+                })
         
-        has_next = next_page['next']
-        if has_next != None:
-            next_page = sp.next(next_page)
-    
-    print(f"Removed {removed_songs_counter} songs")
-    return None
-
-def current_playlist_songs(playlist_id: str,
-                           sp: object) -> set:
-    """
-    Get the IDs of the songs currently in the playlist.
-    This is used to check if a song is already present in the playlist, to prevent duplication
-    """
-    playlist_details = sp.playlist(playlist_id=playlist_id,additional_types=['track'])
-    track_ids = [track['track']['id'] for track in playlist_details['tracks']['items']]
-    has_next = playlist_details['tracks']['next']
-    if has_next != None:
-        next_page = sp.next(playlist_details['tracks'])
-    
-    while has_next != None:
-        next_track_ids = [track['track']['id'] for track in next_page['items']]
-        track_ids.extend(next_track_ids)
-        has_next = next_page['next']
-        if has_next != None:
-            next_page = sp.next(next_page)
-
-    track_ids = set(track_ids)
-    return track_ids
-
-def album_popular_songs(album_id:str,
-                        sp: object) -> list:
-    """
-    Get up to the 3 most popular songs from an album.
-    If there is a single most popular song, only that song will be collected
-    Otherwise, if there is a tie for popularity, up to 3 songs will be collected
-    """
-    album_details = sp.album_tracks(album_id=album_id,market='US')
-    album = sp.album(album_id=album_id, market='US')
-    album_name = album['name']
-    artist_name = [artist['name'] for artist in album['artists']]
-    track_uris = [track['uri'] for track in album_details['items']]
-    max_popularity = 0
-    most_popular_song_ids = []
-    for uri in track_uris:
-        track_details = sp.track(track_id=uri)
-        if track_details['popularity'] > max_popularity:
-            max_popularity = track_details['popularity']
-            most_popular_song_ids = []
-            most_popular_song_ids.append(track_details['id'])
-        elif track_details['popularity'] == max_popularity:
-            most_popular_song_ids.append(track_details['id'])
+        # Check if an additional page exists, and fetch it directly using the cursor URL
+        if results.get('next'):
+            results = sp.next(results)
         else:
+            break
+            
+    return tracks
+
+
+def extract_spotify_urls(raw_reddit_data: list[dict]) -> list[str]:
+    """
+    Parses raw Reddit post titles and comment bodies using regex 
+    to extract matching Spotify URLs.
+    """
+    # Pattern captures open.spotify.com links for tracks, albums, or artists
+    spotify_pattern = r'(https://open.spotify.com/(?:track|album|artist)/[a-zA-Z0-9?=&_-]+)'
+    found_urls = set()
+    
+    for post in raw_reddit_data:
+        # Check post title/URL
+        for match in re.findall(spotify_pattern, post.get('title', '')):
+            found_urls.add(match)
+        if post.get('url') and 'spotify.com' in post['url']:
+            found_urls.add(post['url'])
+            
+        # Check comments
+        for comment in post.get('comments', []):
+            for match in re.findall(spotify_pattern, comment.get('body', '')):
+                found_urls.add(match)
+                
+    return list(found_urls)
+
+
+def resolve_track_ids(sp: spotipy.Spotify, urls: list[str]) -> list[str]:
+    """
+    Takes raw URLs, identifies entity types, and resolves them to track IDs.
+    If an album is encountered, fetches the top 3 tracks based on popularity.
+    """
+    resolved_tracks = set()
+    
+    for url in urls:
+        try:
+            # Clean url to isolate type and ID
+            clean_url = url.split('?')[0]
+            parts = clean_url.split('/')
+            entity_type = parts[-2]
+            entity_id = parts[-1]
+            
+            if entity_type == 'track':
+                resolved_tracks.add(entity_id)
+                
+            elif entity_type == 'album':
+                # Pull album tracks and rank by internal popularity
+                album_tracks = sp.album_tracks(entity_id)
+                track_details = []
+                
+                # Fetch detailed track objects to inspect popularity metric
+                track_ids = [t['id'] for t in album_tracks['items']]
+                
+                # Spotify allow batching up to 50 tracks for details
+                for i in range(0, len(track_ids), 50):
+                    batch = sp.tracks(track_ids[i:i+50])
+                    track_details.extend(batch['tracks'])
+                
+                # Sort by popularity descending and grab top 3
+                sorted_tracks = sorted(track_details, key=lambda x: x.get('popularity', 0), reverse=True)
+                for track in sorted_tracks[:3]:
+                    resolved_tracks.add(track['id'])
+                    
+        except Exception as e:
+            print(f"Failed to process Spotify entity {url}: {e}")
             continue
-    print(f"Grabbing {len(most_popular_song_ids[:3])} songs from album '{album_name}' by {' and '.join(artist_name)}")
-    return most_popular_song_ids[:3]
+            
+    return list(resolved_tracks)
 
-def add_songs_to_playlist(playlist_id: str,
-                          items:list,
-                          sp: object) -> None:
-    """
-    Add songs to the playlist
-    """
-    number_of_songs = len(items)
-    try:
-        sp.playlist_add_items(playlist_id=playlist_id,items = items)
-        print(f"Added {number_of_songs} songs to the playlist")
-    except Exception as e:
-        print(f"An error occurred while adding songs: {e}")
-    return None
 
-if __name__ == "__main__":
-    sp = authenticate_spotify(client_id=spotify_client_id,
-                          client_secret=spotify_client_secret,
-                          redirect_uri=spotify_redirect_uri)
-    print(current_playlist_songs(playlist_id='51y0f32bYmgiIAE8sR4OUQ', sp=sp))
+def sync_playlist_state(sp: spotipy.Spotify, playlist_id: str, target_tracks: list[str]) -> dict:
+    """
+    Compares target track IDs against existing tracks to calculate mutations.
+    Enforces the 30-day sliding window rule.
+    """
+    current_tracks_data = get_current_playlist_tracks(sp, playlist_id)
+    current_track_ids = {t['id'] for t in current_tracks_data}
+    
+    # 1. Identify older tracks to remove (added over 30 days ago)
+    now = datetime.now(timezone.utc)
+    lookback_limit = now - timedelta(days=30)
+    
+    tracks_to_remove = []
+    for track in current_tracks_data:
+        # Spotify returns ISO timestamps: "2026-05-19T10:00:00Z"
+        added_date = datetime.fromisoformat(track['added_at'].replace('Z', '+00:00'))
+        if added_date < lookback_limit:
+            tracks_to_remove.append(track['id'])
+            
+    # 2. Identify new tracks to add (in targets but not in current playlist)
+    tracks_to_add = [t for t in target_tracks if t not in current_track_ids]
+    
+    # 3. Execute Mutations in batches of 100 (Spotify API restriction)
+    if tracks_to_remove:
+        for i in range(0, len(tracks_to_remove), 100):
+            sp.playlist_remove_specific_occurrences_of_items(playlist_id, [{"uri": t} for t in tracks_to_remove[i:i+100]])
+            
+    if tracks_to_add:
+        for i in range(0, len(tracks_to_add), 100):
+            sp.playlist_add_items(playlist_id, tracks_to_add[i:i+100])
+            
+    return {
+        "execution_date": now.isoformat(),
+        "tracks_added_count": len(tracks_to_add),
+        "tracks_removed_count": len(tracks_to_remove),
+        "tracks_added_list": tracks_to_add,
+        "tracks_removed_list": tracks_to_remove,
+        "total_playlist_size": len(current_track_ids) - len(tracks_to_remove) + len(tracks_to_add)
+    }

@@ -186,3 +186,6 @@ src/.spotify_cache
 
 #any .pyc extensions
 *.pyc
+
+#spotify cache
+.spotify_cache
