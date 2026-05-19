@@ -59,6 +59,24 @@ def remove_old_songs(playlist_id: str,
             sp.playlist_remove_all_occurrences_of_items(playlist_id=playlist_id,items=[track_id])
             removed_songs_counter += 1
     
+    has_next = playlist_details['tracks']['next']
+    
+    if has_next != None:
+        next_page = sp.next(playlist_details['tracks'])
+    
+    while has_next != None:
+        for track in next_page['items']:
+            track_timestamp = track['added_at']
+            track_timestamp = datetime.strptime(track_timestamp.replace('Z',''), '%Y-%m-%dT%H:%M:%S').replace(tzinfo=timezone.utc)
+            if track_timestamp < (datetime.now(tz=timezone.utc)-timedelta(days=30)):
+                track_id = track['track']['id']
+                sp.playlist_remove_all_occurrences_of_items(playlist_id=playlist_id,items=[track_id])
+                removed_songs_counter += 1
+        
+        has_next = next_page['next']
+        if has_next != None:
+            next_page = sp.next(next_page)
+    
     print(f"Removed {removed_songs_counter} songs")
     return None
 
@@ -69,6 +87,7 @@ def current_playlist_songs(playlist_id: str,
     This is used to check if a song is already present in the playlist, to prevent duplication
     """
     playlist_details = sp.playlist(playlist_id=playlist_id,additional_types=['track'])
+    track_ids = [track['track']['id'] for track in playlist_details['tracks']['items']]
     track_ids = set([track['track']['id'] for track in playlist_details['tracks']['items']])
     return track_ids
 
@@ -112,3 +131,9 @@ def add_songs_to_playlist(playlist_id: str,
     except Exception as e:
         print(f"An error occurred while adding songs: {e}")
     return None
+
+if __name__ == "__main__":
+    sp = authenticate_spotify(client_id=spotify_client_id,
+                          client_secret=spotify_client_secret,
+                          redirect_uri=spotify_redirect_uri)
+    remove_old_songs(playlist_id='0bzaTO3nrX2Xidm7CZVtjP', sp=sp)
