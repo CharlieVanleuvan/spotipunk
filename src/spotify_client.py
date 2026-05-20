@@ -12,7 +12,7 @@ def get_spotify_client() -> spotipy.Spotify:
     auth_manager = SpotifyOAuth(
         client_id=AppConfig.SPOTIFY_CLIENT_ID,
         client_secret=AppConfig.SPOTIFY_CLIENT_SECRET,
-        redirect_uri="http://localhost:8080",  # Placeholder required by Spotipy
+        redirect_uri="https://localhost:8080",  # Placeholder required by Spotipy
         scope="playlist-modify-public playlist-modify-private",
         open_browser=False
     )
