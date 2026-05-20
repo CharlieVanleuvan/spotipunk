@@ -6,25 +6,31 @@ from src.config import AppConfig
 
 def get_spotify_client() -> spotipy.Spotify:
     """
-    Initializes a headless Spotipy client using the refresh token flow.
-    Perfect for running unattended in Cloud Run.
+    Manually exchanges the long-lived refresh token for a temporary 
+    access token to completely bypass Spotipy's interactive cache prompts.
     """
-    auth_manager = SpotifyOAuth(
-        client_id=AppConfig.SPOTIFY_CLIENT_ID,
-        client_secret=AppConfig.SPOTIFY_CLIENT_SECRET,
-        redirect_uri="https://127.0.0.1:8000/callback",  # Placeholder required by Spotipy
-        scope="playlist-modify-public playlist-modify-private",
-        open_browser=False
+    print("Requesting fresh access token from Spotify API...")
+    
+    auth_response = requests.post(
+        "https://accounts.spotify.com/api/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": AppConfig.SPOTIFY_REFRESH_TOKEN,
+            "client_id": AppConfig.SPOTIFY_CLIENT_ID,
+            "client_secret": AppConfig.SPOTIFY_CLIENT_SECRET,
+        }
     )
     
-    # Force injection of our long-lived refresh token
-    auth_manager.cache_handler.save_token_to_cache({
-        "refresh_token": AppConfig.SPOTIFY_REFRESH_TOKEN,
-        "access_token": "",
-        "expires_at": 0
-    })
+    # Catch any HTTP errors immediately
+    auth_response.raise_for_status()
     
-    return spotipy.Spotify(auth_manager=auth_manager)
+    token_data = auth_response.json()
+    access_token = token_data.get("access_token")
+    
+    print("Spotify access token successfully generated.")
+    
+    # Return a clean Spotipy instance authorized with the fresh token
+    return spotipy.Spotify(auth=access_token)
 
 
 def get_current_playlist_tracks(sp: spotipy.Spotify, playlist_id: str) -> list[dict]:
