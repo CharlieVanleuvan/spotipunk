@@ -62,4 +62,4 @@ def log_pipeline_results(sync_summary: dict) -> None:
         
     except Exception as e:
         print(f"Failed to log data to BigQuery: {e}")
-        # In a critical pipeline, you might want to raise this or handle alerts
+        # future work --> add alerting
