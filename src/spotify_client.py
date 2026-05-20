@@ -1,5 +1,6 @@
 import re
 import spotipy
+import requests
 from spotipy.oauth2 import SpotifyOAuth
 from datetime import datetime, timedelta, timezone
 from src.config import AppConfig
