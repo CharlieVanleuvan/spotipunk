@@ -1,6 +1,9 @@
 # spotipunk 🤘
 This is a data pipeline that extracts songs from the reddit forum r/poppunkers and then sends those song titles to Spotify to build a playlist. 
 ---
+#### Click below to view the playlist in Spotify!    
+[![spotipunk playlist](https://github.com/user-attachments/assets/9591c760-c1ca-409e-b8db-1c626c6edabf)](https://open.spotify.com/playlist/0bzaTO3nrX2Xidm7CZVtjP)
+---
 # spotipunk Pipeline Architecture
 
 The **spotipunk Pipeline** was developed to build off the active pop punk community and discover (sometimes re-discover) music on Reddit. These songs are shared as a public playlist on Spotify. This pipeline runs serverlessly on Google Cloud Platform (GCP) to find the top songs mentioned throughout the week and add it to a rolling monthly playlist.
