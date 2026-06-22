@@ -22,3 +22,10 @@ steps:
 
 images:
   - 'gcr.io/nifty-catfish-458019-a0/spotipunk-image:$COMMIT_SHA'
+
+# ADD THIS OPTIONS BLOCK:
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+images:
+  - 'gcr.io/nifty-catfish-458019-a0/spotipunk-image:$COMMIT_SHA'
