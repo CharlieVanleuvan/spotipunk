@@ -154,7 +154,11 @@ def sync_playlist_state(sp: spotipy.Spotify, playlist_id: str, target_tracks: li
     if tracks_to_remove:
         for i in range(0, len(tracks_to_remove), 100):
             sp.playlist_remove_specific_occurrences_of_items(playlist_id, [{"uri": t} for t in tracks_to_remove[i:i+100]])
-            
+
+    for track in tracks_to_add[i:i+100]:
+        if not isinstance(track,str) or len(track) < 10:
+            print(f"DEBUG: Found bad track ID: {track}")
+
     if tracks_to_add:
         for i in range(0, len(tracks_to_add), 100):
             sp.playlist_add_items(playlist_id, tracks_to_add[i:i+100])
