@@ -1,11 +1,11 @@
 steps:
   # Step 1: Build the container image
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/nifty-catfish-458019-a0/spotipunk-image:$COMMIT_SHA', '.']
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/nifty-catfish-458019-a0/spotipunk-image/spotipunk-image:$COMMIT_SHA', '.']
 
-  # Step 2: Push the image to Google Container Registry
+  # Step 2: Push the image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/nifty-catfish-458019-a0/spotipunk-image:$COMMIT_SHA']
+    args: ['push', 'us-central1-docker.pkg.dev/nifty-catfish-458019-a0/spotipunk-image/spotipunk-image:$COMMIT_SHA']
 
   # Step 3: Update the Cloud Run Job to use the new image
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -16,12 +16,12 @@ steps:
       - 'update'
       - 'spotipunk-pipeline'
       - '--image'
-      - 'gcr.io/nifty-catfish-458019-a0/spotipunk-image:$COMMIT_SHA'
+      - 'us-central1-docker.pkg.dev/nifty-catfish-458019-a0/spotipunk-image/spotipunk-image:$COMMIT_SHA'
       - '--region'
       - 'us-central1'
 
 images:
-  - 'gcr.io/nifty-catfish-458019-a0/spotipunk-image:$COMMIT_SHA'
+  - 'us-central1-docker.pkg.dev/nifty-catfish-458019-a0/spotipunk-image/spotipunk-image:$COMMIT_SHA'
 
 options:
   logging: CLOUD_LOGGING_ONLY
