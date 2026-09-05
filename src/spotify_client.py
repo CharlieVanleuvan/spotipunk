@@ -5,13 +5,43 @@ from spotipy.oauth2 import SpotifyOAuth
 from datetime import datetime, timedelta, timezone
 from src.config import AppConfig
 
+def _rotate_refresh_token_in_secret_manager(new_refresh_token: str) -> None:
+    """
+    Writes a new refresh token version to GCP Secret Manager.
+    Called automatically when Spotify returns a rotated refresh token.
+    The secret name is derived from the env var name: SPOTIFY_REFRESH_TOKEN.
+    """
+    try:
+        from google.cloud import secretmanager  # imported here to avoid import errors in local dev
+
+        secret_name = f"projects/{AppConfig.GCP_PROJECT_ID}/secrets/SPOTIFY_REFRESH_TOKEN/versions/latest"
+        client = secretmanager.SecretManagerServiceClient()
+
+        # Add the new version — Secret Manager keeps the old versions intact
+        parent = f"projects/{AppConfig.GCP_PROJECT_ID}/secrets/SPOTIFY_REFRESH_TOKEN"
+        client.add_secret_version(
+            request={
+                "parent": parent,
+                "payload": {"data": new_refresh_token.encode("utf-8")},
+            }
+        )
+        print("Rotated Spotify refresh token successfully persisted to Secret Manager.")
+    except Exception as e:
+        # Log but don't crash — the current run will still succeed with the access token we already have
+        print(f"WARNING: Failed to persist rotated refresh token to Secret Manager: {e}")
+
+
 def get_spotify_client() -> spotipy.Spotify:
     """
-    Manually exchanges the long-lived refresh token for a temporary 
+    Manually exchanges the long-lived refresh token for a temporary
     access token to completely bypass Spotipy's interactive cache prompts.
+
+    Spotify may return a new refresh token alongside the access token (token
+    rotation). When that happens, the new token is automatically written back
+    to Secret Manager so future runs stay valid.
     """
     print("Requesting fresh access token from Spotify API...")
-    
+
     auth_response = requests.post(
         "https://accounts.spotify.com/api/token",
         data={
@@ -21,15 +51,22 @@ def get_spotify_client() -> spotipy.Spotify:
             "client_secret": AppConfig.SPOTIFY_CLIENT_SECRET,
         }
     )
-    
+
     # Catch any HTTP errors immediately
     auth_response.raise_for_status()
-    
+
     token_data = auth_response.json()
     access_token = token_data.get("access_token")
-    
+
+    # Spotify token rotation: a new refresh token may be returned.
+    # If so, persist it to Secret Manager before it's lost.
+    new_refresh_token = token_data.get("refresh_token")
+    if new_refresh_token and new_refresh_token != AppConfig.SPOTIFY_REFRESH_TOKEN:
+        print("Spotify issued a rotated refresh token — updating Secret Manager...")
+        _rotate_refresh_token_in_secret_manager(new_refresh_token)
+
     print("Spotify access token successfully generated.")
-    
+
     # Return a clean Spotipy instance authorized with the fresh token
     return spotipy.Spotify(auth=access_token)
 
